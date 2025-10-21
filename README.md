@@ -1,2 +1,3 @@
-# Zoom
-A full stack video conferencing web application.
+# NOVAMEET
+A MODERN VIDEO CONFRENCING PLATFORM
+
