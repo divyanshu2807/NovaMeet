@@ -1,101 +1,67 @@
-import httpStatus from "http-status";
 import { User } from "../models/user.model.js";
-import bcrypt, { hash } from "bcrypt"
 
-import crypto from "crypto"
-import { Meeting } from "../models/meeting.model.js";
-const login = async (req, res) => {
+// ✅ Register Controller
+export const register = async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
 
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-        return res.status(400).json({ message: "Please Provide" })
+    if (!name || !email || !password) {
+      return res
+        .status(400)
+        .json({ message: "All fields (name, email, password) are required" });
     }
 
-    try {
-        const user = await User.findOne({ username });
-        if (!user) {
-            return res.status(httpStatus.NOT_FOUND).json({ message: "User Not Found" })
-        }
-
-
-        let isPasswordCorrect = await bcrypt.compare(password, user.password)
-
-        if (isPasswordCorrect) {
-            let token = crypto.randomBytes(20).toString("hex");
-
-            user.token = token;
-            await user.save();
-            return res.status(httpStatus.OK).json({ token: token })
-        } else {
-            return res.status(httpStatus.UNAUTHORIZED).json({ message: "Invalid Username or password" })
-        }
-
-    } catch (e) {
-        return res.status(500).json({ message: `Something went wrong ${e}` })
-    }
-}
-
-
-const register = async (req, res) => {
-    const { name, username, password } = req.body;
-
-
-    try {
-        const existingUser = await User.findOne({ username });
-        if (existingUser) {
-            return res.status(httpStatus.FOUND).json({ message: "User already exists" });
-        }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        const newUser = new User({
-            name: name,
-            username: username,
-            password: hashedPassword
-        });
-
-        await newUser.save();
-
-        res.status(httpStatus.CREATED).json({ message: "User Registered" })
-
-    } catch (e) {
-        res.json({ message: `Something went wrong ${e}` })
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already registered" });
     }
 
-}
+    const newUser = await User.create({ name, email, password });
 
+    res.status(201).json({
+      message: "User registered successfully",
+      user: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+      },
+    });
+  } catch (error) {
+    console.error("Registration Error:", error);
+    res.status(500).json({
+      message: `Something went wrong: ${error.message}`,
+    });
+  }
+};
 
-const getUserHistory = async (req, res) => {
-    const { token } = req.query;
+// ✅ Login Controller
+export const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-    try {
-        const user = await User.findOne({ token: token });
-        const meetings = await Meeting.find({ user_id: user.username })
-        res.json(meetings)
-    } catch (e) {
-        res.json({ message: `Something went wrong ${e}` })
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password are required" });
     }
-}
 
-const addToHistory = async (req, res) => {
-    const { token, meeting_code } = req.body;
-
-    try {
-        const user = await User.findOne({ token: token });
-
-        const newMeeting = new Meeting({
-            user_id: user.username,
-            meetingCode: meeting_code
-        })
-
-        await newMeeting.save();
-
-        res.status(httpStatus.CREATED).json({ message: "Added code to history" })
-    } catch (e) {
-        res.json({ message: `Something went wrong ${e}` })
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
     }
-}
 
+    if (user.password !== password) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
-export { login, register, getUserHistory, addToHistory }
+    res.status(200).json({
+      message: "Login successful",
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error("Login Error:", error);
+    res.status(500).json({ message: `Something went wrong: ${error.message}` });
+  }
+};
