@@ -386,7 +386,7 @@ export default function VideoMeet() {
           fontSize: "0.9rem",
         }}
       >
-        Developed by <b>Divyanshu Vats</b> | NovaMeet Project 🚀
+         NovaMeet Project 🚀
       </p>
     </div>
   );

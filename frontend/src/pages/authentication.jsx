@@ -1,21 +1,28 @@
+// src/pages/authentication.jsx
 import React, { useState, useEffect } from "react";
 import "../App.css";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function Authentication() {
   const [isLogin, setIsLogin] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+  const { userData, handleLogin, handleRegister, loading } = useAuth();
 
-  // 🧩 Auto-redirect if already logged in
   useEffect(() => {
-    const user = localStorage.getItem("nova_user");
-    if (user) {
+    if (!loading && userData) {
+      // if userData exists, redirect to home
       navigate("/home", { replace: true });
     }
-  }, [navigate]);
+  }, [loading, userData, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return; // prevent double submit
+    setSubmitting(true);
+
+    console.log("🟢 Form submitted");
 
     const formData = new FormData(e.target);
     const email = formData.get("email");
@@ -23,39 +30,45 @@ export default function Authentication() {
     const name = formData.get("name");
 
     try {
-      const response = await fetch(
-        isLogin
-          ? "http://localhost:8000/api/v1/users/login"
-          : "http://localhost:8000/api/v1/users/register",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            isLogin ? { email, password } : { name, email, password }
-          ),
+      if (isLogin) {
+        const res = await handleLogin(email, password);
+        console.log("🟢 handleLogin result:", res);
+
+        if (res?.ok) {
+          // Navigate only if we have a token (or fallback token provided by AuthContext)
+          if (res.token) {
+            navigate("/home", { replace: true });
+          } else {
+            // fallback: still navigate but warn in console
+            console.warn("No token returned from login response; navigating with fallback.");
+            navigate("/home", { replace: true });
+          }
+        } else {
+          alert("Login failed: " + (res?.error?.message || "Check credentials"));
         }
-      );
-
-      const data = await response.json();
-      console.log("✅ Response:", data);
-
-      if (response.ok) {
-        // ✅ Save user & token
-        localStorage.setItem("nova_user", JSON.stringify(data.user));
-        if (data.token) localStorage.setItem("token", data.token);
-
-        // ✅ Navigate to Home cleanly
-        navigate("/home", { replace: true });
-
-        // Small safety reload for instant re-render
-       // setTimeout(() => window.location.reload(), 200);
       } else {
-        console.warn("⚠️ Login/Register failed:", data.message);
+        const res = await handleRegister(name, email, password);
+        if (res.ok) {
+          alert("Registration successful, please login.");
+          setIsLogin(true);
+        } else {
+          alert("Register failed: " + (res?.error?.message || "Try again"));
+        }
       }
-    } catch (error) {
-      console.error("❌ Server error:", error);
+    } catch (err) {
+      console.error("❌ Error:", err);
+      alert("Server error.");
+    } finally {
+      setSubmitting(false);
     }
   };
+
+  if (loading)
+    return (
+      <div className="auth-page">
+        <div className="auth-card">Checking session...</div>
+      </div>
+    );
 
   return (
     <div className="auth-page">
@@ -66,31 +79,13 @@ export default function Authentication() {
 
         <form className="auth-form" onSubmit={handleSubmit}>
           {!isLogin && (
-            <input
-              type="text"
-              name="name"
-              placeholder="Full Name"
-              className="auth-input"
-              required
-            />
+            <input type="text" name="name" placeholder="Full Name" className="auth-input" required />
           )}
-          <input
-            type="email"
-            name="email"
-            placeholder="Email Address"
-            className="auth-input"
-            required
-          />
-          <input
-            type="password"
-            name="password"
-            placeholder="Password"
-            className="auth-input"
-            required
-          />
+          <input type="email" name="email" placeholder="Email Address" className="auth-input" required />
+          <input type="password" name="password" placeholder="Password" className="auth-input" required />
 
-          <button type="submit" className="auth-btn">
-            {isLogin ? "Login" : "Register"}
+          <button type="submit" className="auth-btn" disabled={submitting}>
+            {submitting ? (isLogin ? "Logging in..." : "Registering...") : isLogin ? "Login" : "Register"}
           </button>
         </form>
 
@@ -98,12 +93,16 @@ export default function Authentication() {
           {isLogin ? (
             <>
               Don’t have an account?{" "}
-              <span onClick={() => setIsLogin(false)}>Register</span>
+              <span onClick={() => setIsLogin(false)} style={{ color: "#1e90ff", cursor: "pointer" }}>
+                Register
+              </span>
             </>
           ) : (
             <>
               Already have an account?{" "}
-              <span onClick={() => setIsLogin(true)}>Login</span>
+              <span onClick={() => setIsLogin(true)} style={{ color: "#1e90ff", cursor: "pointer" }}>
+                Login
+              </span>
             </>
           )}
         </p>
