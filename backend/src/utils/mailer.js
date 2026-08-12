@@ -5,7 +5,9 @@ import nodemailer from "nodemailer";
 // GMAIL TRANSPORTER
 // ==========================================
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
@@ -98,44 +100,15 @@ export const sendVerificationEmail = async (
 
     return true;
   } catch (error) {
-    console.error(
-      "❌ EMAIL SENDING FAILED"
-    );
+    console.error("❌ EMAIL SENDING FAILED");
 
-    console.error(
-      "Error name:",
-      error?.name
-    );
-
-    console.error(
-      "Error code:",
-      error?.code
-    );
-
-    console.error(
-      "Error command:",
-      error?.command
-    );
-
-    console.error(
-      "Error response:",
-      error?.response
-    );
-
-    console.error(
-      "Error responseCode:",
-      error?.responseCode
-    );
-
-    console.error(
-      "Error message:",
-      error?.message
-    );
-
-    console.error(
-      "Full error:",
-      error
-    );
+    console.error("Error name:", error?.name);
+    console.error("Error code:", error?.code);
+    console.error("Error command:", error?.command);
+    console.error("Error response:", error?.response);
+    console.error("Error responseCode:", error?.responseCode);
+    console.error("Error message:", error?.message);
+    console.error("Full error:", error);
 
     return false;
   }
