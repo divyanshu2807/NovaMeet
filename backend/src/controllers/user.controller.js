@@ -4,18 +4,27 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { sendVerificationEmail } from "../utils/mailer.js";
 
-// ✅ Register Controller
+// ==========================================
+// REGISTER
+// ==========================================
 export const register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
+    // Validate fields
     if (!name || !email || !password) {
       return res.status(400).json({
         message: "All fields (name, email, password) are required",
       });
     }
 
-    const existingUser = await User.findOne({ email });
+    // Normalize email
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Check existing user
+    const existingUser = await User.findOne({
+      email: normalizedEmail,
+    });
 
     if (existingUser) {
       return res.status(400).json({
@@ -23,39 +32,59 @@ export const register = async (req, res) => {
       });
     }
 
-    // 🔐 Hash password
+    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 🔑 Generate secure verification token
-    const verificationToken = crypto.randomBytes(32).toString("hex");
+    // Generate verification token
+    const verificationToken = crypto
+      .randomBytes(32)
+      .toString("hex");
 
-    // ⏰ Token valid for 15 minutes
+    // Token valid for 15 minutes
     const verificationTokenExpiry = new Date(
       Date.now() + 15 * 60 * 1000
     );
 
-    // 👤 Create user
+    // Create user
     const newUser = await User.create({
-      name,
-      email,
+      name: name.trim(),
+      email: normalizedEmail,
       password: hashedPassword,
       isEmailVerified: false,
       verificationToken,
       verificationTokenExpiry,
     });
 
-    // 🔗 Verification link
-    const verificationLink = `http://localhost:3000/verify-email?token=${verificationToken}`;
+    // ==========================================
+    // PRODUCTION VERIFICATION LINK
+    // ==========================================
 
-    // 📧 Send verification email
+    const frontendUrl =
+      process.env.FRONTEND_URL ||
+      "https://nova-meet-six.vercel.app";
+
+    const verificationLink =
+      `${frontendUrl}/verify-email?token=${verificationToken}`;
+
+    console.log("🔗 Verification link generated");
+    console.log("📧 Sending verification email to:", normalizedEmail);
+
+    // ==========================================
+    // SEND VERIFICATION EMAIL
+    // ==========================================
+
     const emailSent = await sendVerificationEmail(
-      email,
+      normalizedEmail,
       verificationLink
     );
 
-    // ❌ If email could not be sent, remove user
+    // If email failed, delete created user
     if (!emailSent) {
       await User.findByIdAndDelete(newUser._id);
+
+      console.error(
+        "❌ Registration cancelled because verification email failed."
+      );
 
       return res.status(500).json({
         message:
@@ -63,6 +92,7 @@ export const register = async (req, res) => {
       });
     }
 
+    // Registration successful
     return res.status(201).json({
       message:
         "Registration successful. Please verify your email.",
@@ -73,15 +103,19 @@ export const register = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Registration Error:", error);
+    console.error("❌ Registration Error:", error);
 
     return res.status(500).json({
-      message: `Something went wrong: ${error.message}`,
+      message:
+        error?.message ||
+        "Something went wrong during registration.",
     });
   }
 };
 
-// ✅ Login Controller
+// ==========================================
+// LOGIN
+// ==========================================
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -92,7 +126,11 @@ export const login = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email });
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const user = await User.findOne({
+      email: normalizedEmail,
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -100,7 +138,7 @@ export const login = async (req, res) => {
       });
     }
 
-    // 📧 Check email verification
+    // Email verification check
     if (!user.isEmailVerified) {
       return res.status(403).json({
         message:
@@ -108,7 +146,7 @@ export const login = async (req, res) => {
       });
     }
 
-    // 🔐 Compare password with hashed password
+    // Password check
     const isPasswordValid = await bcrypt.compare(
       password,
       user.password
@@ -120,7 +158,7 @@ export const login = async (req, res) => {
       });
     }
 
-    // 🔑 Generate JWT token
+    // JWT
     const token = jwt.sign(
       {
         id: user._id,
@@ -142,32 +180,36 @@ export const login = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Login Error:", error);
+    console.error("❌ Login Error:", error);
 
     return res.status(500).json({
-      message: `Something went wrong: ${error.message}`,
+      message:
+        error?.message ||
+        "Something went wrong during login.",
     });
   }
 };
 
-// ✅ Verify Email Controller
+// ==========================================
+// VERIFY EMAIL
+// ==========================================
 export const verifyEmail = async (req, res) => {
   try {
     const { token } = req.query;
 
+    console.log("=================================");
     console.log("🔍 VERIFY EMAIL REQUEST");
-    console.log("🔑 Token received:", token);
-    console.log("🔢 Token length:", token?.length);
+    console.log("🔑 Token received:", token ? "YES" : "NO");
+    console.log("🔢 Token length:", token?.length || 0);
+    console.log("=================================");
 
     if (!token) {
-      console.log("❌ No verification token received");
-
       return res.status(400).json({
         message: "Verification token is required",
       });
     }
 
-    // 🔍 Find user with valid token and unexpired token
+    // Find valid token
     const user = await User.findOne({
       verificationToken: token,
       verificationTokenExpiry: {
@@ -180,32 +222,32 @@ export const verifyEmail = async (req, res) => {
       user ? user.email : "NO USER"
     );
 
-    console.log(
-      "⏰ Current time:",
-      new Date().toISOString()
-    );
-
     if (!user) {
       console.log(
         "❌ Invalid or expired verification token"
       );
 
       return res.status(400).json({
-        message: "Invalid or expired verification link",
+        message:
+          "Invalid or expired verification link",
       });
     }
 
-    // ✅ Verify email
+    // Verify user
     user.isEmailVerified = true;
     user.verificationToken = undefined;
     user.verificationTokenExpiry = undefined;
 
     await user.save();
 
-    console.log("✅ EMAIL VERIFIED:", user.email);
+    console.log(
+      "✅ EMAIL VERIFIED:",
+      user.email
+    );
 
     return res.status(200).json({
-      message: "Email verified successfully",
+      message:
+        "Email verified successfully",
     });
   } catch (error) {
     console.error(
