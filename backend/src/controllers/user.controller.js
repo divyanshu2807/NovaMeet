@@ -1,8 +1,6 @@
 import { User } from "../models/user.model.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
-import { sendVerificationEmail } from "../utils/mailer.js";
 
 // ==========================================
 // REGISTER
@@ -34,70 +32,21 @@ export const register = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Generate verification token
-    const verificationToken = crypto
-      .randomBytes(32)
-      .toString("hex");
-
-    // Token valid for 15 minutes
-    const verificationTokenExpiry = new Date(
-      Date.now() + 15 * 60 * 1000
-    );
-
-    // Create user
+    // Create user directly
     const newUser = await User.create({
       name: name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
-      isEmailVerified: false,
-      verificationToken,
-      verificationTokenExpiry,
+      isEmailVerified: true,
     });
 
-    // ==========================================
-    // PRODUCTION VERIFICATION LINK
-    // ==========================================
-
-    const frontendUrl =
-      process.env.FRONTEND_URL ||
-      "https://nova-meet-six.vercel.app";
-
-    const verificationLink =
-      `${frontendUrl}/verify-email?token=${verificationToken}`;
-
-    console.log("🔗 Verification link generated");
     console.log(
-      "📧 Sending verification email to:",
-      normalizedEmail
+      "✅ USER REGISTERED:",
+      newUser.email
     );
 
-    // ==========================================
-    // SEND VERIFICATION EMAIL
-    // ==========================================
-
-    const emailSent = await sendVerificationEmail(
-      normalizedEmail,
-      verificationLink
-    );
-
-    // If email failed, delete created user
-    if (!emailSent) {
-      await User.findByIdAndDelete(newUser._id);
-
-      console.error(
-        "❌ Registration cancelled because verification email failed."
-      );
-
-      return res.status(500).json({
-        message:
-          "Registration failed because verification email could not be sent.",
-      });
-    }
-
-    // Registration successful
     return res.status(201).json({
-      message:
-        "Registration successful. Please verify your email.",
+      message: "Registration successful. You can login now.",
       user: {
         id: newUser._id,
         name: newUser.name,
@@ -137,14 +86,6 @@ export const login = async (req, res) => {
     if (!user) {
       return res.status(404).json({
         message: "User not found",
-      });
-    }
-
-    // Email verification check
-    if (!user.isEmailVerified) {
-      return res.status(403).json({
-        message:
-          "Please verify your email before logging in.",
       });
     }
 
@@ -195,21 +136,11 @@ export const login = async (req, res) => {
 // ==========================================
 // VERIFY EMAIL
 // ==========================================
+// Kept for backward compatibility.
+// Not required for new registrations.
 export const verifyEmail = async (req, res) => {
   try {
     const { token } = req.query;
-
-    console.log("=================================");
-    console.log("🔍 VERIFY EMAIL REQUEST");
-    console.log(
-      "🔑 Token received:",
-      token ? "YES" : "NO"
-    );
-    console.log(
-      "🔢 Token length:",
-      token?.length || 0
-    );
-    console.log("=================================");
 
     if (!token) {
       return res.status(400).json({
@@ -217,7 +148,6 @@ export const verifyEmail = async (req, res) => {
       });
     }
 
-    // Find valid token
     const user = await User.findOne({
       verificationToken: token,
       verificationTokenExpiry: {
@@ -225,37 +155,20 @@ export const verifyEmail = async (req, res) => {
       },
     });
 
-    console.log(
-      "👤 User found:",
-      user ? user.email : "NO USER"
-    );
-
     if (!user) {
-      console.log(
-        "❌ Invalid or expired verification token"
-      );
-
       return res.status(400).json({
-        message:
-          "Invalid or expired verification link",
+        message: "Invalid or expired verification link",
       });
     }
 
-    // Verify user
     user.isEmailVerified = true;
     user.verificationToken = undefined;
     user.verificationTokenExpiry = undefined;
 
     await user.save();
 
-    console.log(
-      "✅ EMAIL VERIFIED:",
-      user.email
-    );
-
     return res.status(200).json({
-      message:
-        "Email verified successfully",
+      message: "Email verified successfully",
     });
   } catch (error) {
     console.error(
