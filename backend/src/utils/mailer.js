@@ -1,18 +1,7 @@
 import "dotenv/config";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-// ==========================================
-// GMAIL TRANSPORTER
-// ==========================================
-const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ==========================================
 // SEND VERIFICATION EMAIL
@@ -23,22 +12,18 @@ export const sendVerificationEmail = async (
 ) => {
   try {
     console.log("=================================");
-    console.log("📧 EMAIL CONFIG CHECK");
+    console.log("📧 RESEND EMAIL CONFIG CHECK");
     console.log(
-      "EMAIL_USER:",
-      process.env.EMAIL_USER ? "SET" : "MISSING"
-    );
-    console.log(
-      "EMAIL_PASS:",
-      process.env.EMAIL_PASS ? "SET" : "MISSING"
+      "RESEND_API_KEY:",
+      process.env.RESEND_API_KEY ? "SET" : "MISSING"
     );
     console.log("📨 Sending email to:", email);
     console.log("🔗 Verification link:", verificationLink);
     console.log("=================================");
 
-    await transporter.sendMail({
-      from: `"NovaMeet" <${process.env.EMAIL_USER}>`,
-      to: email,
+    const { data, error } = await resend.emails.send({
+      from: "NovaMeet <onboarding@resend.dev>",
+      to: [email],
       subject: "Verify your NovaMeet account",
 
       html: `
@@ -78,8 +63,7 @@ export const sendVerificationEmail = async (
           </a>
 
           <p style="margin-top: 20px;">
-            This verification link will expire in
-            15 minutes.
+            This verification link will expire in 15 minutes.
           </p>
 
           <p>
@@ -94,21 +78,22 @@ export const sendVerificationEmail = async (
       `,
     });
 
+    if (error) {
+      console.error("❌ RESEND EMAIL FAILED");
+      console.error("Error:", error);
+
+      return false;
+    }
+
     console.log(
       `📧 Verification email sent successfully to: ${email}`
     );
+    console.log("📨 Resend ID:", data?.id);
 
     return true;
   } catch (error) {
-    console.error("❌ EMAIL SENDING FAILED");
-
-    console.error("Error name:", error?.name);
-    console.error("Error code:", error?.code);
-    console.error("Error command:", error?.command);
-    console.error("Error response:", error?.response);
-    console.error("Error responseCode:", error?.responseCode);
-    console.error("Error message:", error?.message);
-    console.error("Full error:", error);
+    console.error("❌ RESEND EMAIL EXCEPTION");
+    console.error("Error:", error);
 
     return false;
   }
