@@ -7,314 +7,862 @@ import socket from "../socketTest";
 export default function VideoMeet() {
   const { roomId } = useParams();
   const { state } = useLocation();
+
   const userVideo = useRef(null);
-  const [peers, setPeers] = useState([]);
   const peersRef = useRef([]);
   const localStreamRef = useRef(null);
+
+  const [peers, setPeers] = useState([]);
+
   const userName = state?.userName || "Guest";
 
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
 
-  // 🧩 Chat states
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState("");
   const [chatOpen, setChatOpen] = useState(false);
 
+  // ==========================================
+  // MEETING SETUP
+  // ==========================================
   useEffect(() => {
     let mounted = true;
 
-    const addPeerRef = (peerID, peer) => {
-      peersRef.current.push({ peerID, peer });
-      setPeers((prev) => [...prev, { id: peerID, peer }]);
+    // ==========================================
+    // ADD PEER
+    // ==========================================
+    const addPeer = (
+      peerID,
+      peer,
+      participantName,
+      audio = true,
+      video = true
+    ) => {
+      const peerData = {
+        peerID,
+        peer,
+        userName: participantName || "Guest",
+        audio,
+        video,
+      };
+
+      const alreadyExists = peersRef.current.some(
+        (item) => item.peerID === peerID
+      );
+
+      if (alreadyExists) {
+        return;
+      }
+
+      peersRef.current.push(peerData);
+
+      setPeers((prev) => {
+        const exists = prev.some(
+          (item) => item.id === peerID
+        );
+
+        if (exists) {
+          return prev;
+        }
+
+        return [
+          ...prev,
+          {
+            id: peerID,
+            peer,
+            userName: participantName || "Guest",
+            audio,
+            video,
+          },
+        ];
+      });
     };
 
-    const removePeerRef = (peerID) => {
-      peersRef.current = peersRef.current.filter((p) => p.peerID !== peerID);
-      setPeers(peersRef.current.map((p) => ({ id: p.peerID, peer: p.peer })));
+    // ==========================================
+    // REMOVE PEER
+    // ==========================================
+    const removePeer = (peerID) => {
+      const item = peersRef.current.find(
+        (peer) => peer.peerID === peerID
+      );
+
+      if (item?.peer && !item.peer.destroyed) {
+        item.peer.destroy();
+      }
+
+      peersRef.current = peersRef.current.filter(
+        (item) => item.peerID !== peerID
+      );
+
+      setPeers((prev) =>
+        prev.filter((item) => item.id !== peerID)
+      );
     };
 
+    // ==========================================
+    // REMOVE OLD SOCKET LISTENERS
+    // ==========================================
     socket.off("all-users");
     socket.off("user-joined");
     socket.off("user-signal");
     socket.off("receiving-returned-signal");
     socket.off("user-left");
     socket.off("chat-message");
+    socket.off("media-status");
 
-    (async () => {
+    // ==========================================
+    // START MEETING
+    // ==========================================
+    const startMeeting = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
-
-        const videoTrack = stream.getVideoTracks()[0];
-        await new Promise((resolve) => {
-          if (videoTrack && videoTrack.readyState === "live") return resolve();
-          const check = setInterval(() => {
-            if (videoTrack.readyState === "live") {
-              clearInterval(check);
-              resolve();
-            }
-          }, 100);
-        });
+        const stream =
+          await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
 
         if (!mounted) {
-          stream.getTracks().forEach((t) => t.stop());
+          stream.getTracks().forEach((track) => {
+            track.stop();
+          });
+
           return;
         }
 
         localStreamRef.current = stream;
-        if (userVideo.current) userVideo.current.srcObject = stream;
 
-        await new Promise((r) => setTimeout(r, 600));
-        socket.emit("join-room", { roomId, userName });
+        // Local video
+        if (userVideo.current) {
+          userVideo.current.srcObject = stream;
+        }
 
+        // ==========================================
+        // JOIN ROOM
+        // ==========================================
+        socket.emit("join-room", {
+          roomId,
+          userName,
+          audio: true,
+          video: true,
+        });
+
+        console.log("🚪 Joined room:", roomId);
+        console.log("👤 User:", userName);
+
+        // ==========================================
+        // EXISTING USERS
+        // ==========================================
         socket.on("all-users", ({ users }) => {
-          users.forEach((userId) => {
-            const exists = peersRef.current.find((p) => p.peerID === userId);
-            if (exists) return;
-            const peer = createInitiatorPeer(userId, socket.id, stream);
-            addPeerRef(userId, peer);
+          console.log("👥 Existing users:", users);
+
+          users.forEach((user) => {
+            const userId = user.userId;
+
+            const participantName =
+              user.userName || "Guest";
+
+            const exists = peersRef.current.some(
+              (item) => item.peerID === userId
+            );
+
+            if (exists) {
+              return;
+            }
+
+            const peer = createInitiatorPeer(
+              userId,
+              stream
+            );
+
+            addPeer(
+              userId,
+              peer,
+              participantName,
+              user.audio ?? true,
+              user.video ?? true
+            );
           });
         });
 
-        socket.on("user-joined", ({ userId }) => {
-          const exists = peersRef.current.find((p) => p.peerID === userId);
-          if (exists) return;
-          const peer = createReceiverPeer(userId, stream);
-          addPeerRef(userId, peer);
-        });
+        // ==========================================
+        // NEW USER JOINED
+        // ==========================================
+        socket.on(
+          "user-joined",
+          ({
+            userId,
+            userName: participantName,
+            audio,
+            video,
+          }) => {
+            console.log(
+              "🆕 New user joined:",
+              participantName
+            );
 
-        socket.on("user-signal", ({ from, signal }) => {
-          let item = peersRef.current.find((p) => p.peerID === from);
-          if (!item) {
-            const peer = createReceiverPeer(from, stream);
-            addPeerRef(from, peer);
-            item = peersRef.current.find((p) => p.peerID === from);
+            const exists = peersRef.current.some(
+              (item) => item.peerID === userId
+            );
+
+            if (exists) {
+              return;
+            }
+
+            const peer = createReceiverPeer(
+              userId,
+              stream
+            );
+
+            addPeer(
+              userId,
+              peer,
+              participantName || "Guest",
+              audio ?? true,
+              video ?? true
+            );
           }
-          if (item && item.peer && !item.peer.destroyed) {
-            try {
-              item.peer.signal(signal);
-            } catch (err) {
-              console.warn("Signal error:", err.message);
+        );
+
+        // ==========================================
+        // WEBRTC SIGNAL
+        // ==========================================
+        socket.on(
+          "user-signal",
+          ({ from, signal }) => {
+            let item = peersRef.current.find(
+              (p) => p.peerID === from
+            );
+
+            if (!item) {
+              const peer = createReceiverPeer(
+                from,
+                stream
+              );
+
+              addPeer(
+                from,
+                peer,
+                "Guest",
+                true,
+                true
+              );
+
+              item = peersRef.current.find(
+                (p) => p.peerID === from
+              );
+            }
+
+            if (
+              item?.peer &&
+              !item.peer.destroyed
+            ) {
+              try {
+                item.peer.signal(signal);
+              } catch (error) {
+                console.warn(
+                  "⚠️ Signal error:",
+                  error.message
+                );
+              }
             }
           }
-        });
+        );
 
-        socket.on("receiving-returned-signal", ({ from, signal }) => {
-          const item = peersRef.current.find((p) => p.peerID === from);
-          if (item && item.peer && !item.peer.destroyed) {
-            try {
-              item.peer.signal(signal);
-            } catch (err) {
-              console.warn("Return signal error:", err.message);
+        // ==========================================
+        // RETURN SIGNAL
+        // ==========================================
+        socket.on(
+          "receiving-returned-signal",
+          ({ from, signal }) => {
+            const item = peersRef.current.find(
+              (p) => p.peerID === from
+            );
+
+            if (
+              item?.peer &&
+              !item.peer.destroyed
+            ) {
+              try {
+                item.peer.signal(signal);
+              } catch (error) {
+                console.warn(
+                  "⚠️ Return signal error:",
+                  error.message
+                );
+              }
             }
           }
+        );
+
+        // ==========================================
+        // USER LEFT
+        // ==========================================
+        socket.on("user-left", (id) => {
+          console.log("🔴 User left:", id);
+
+          removePeer(id);
         });
 
-        socket.on("user-left", (id) => removePeerRef(id));
+        // ==========================================
+        // REAL-TIME MEDIA STATUS
+        // ==========================================
+        socket.on(
+          "media-status",
+          ({
+            userId,
+            audio,
+            video,
+          }) => {
+            console.log(
+              "📡 Media status received:",
+              {
+                userId,
+                audio,
+                video,
+              }
+            );
 
-        // 🧠 Chat listener
+            // Update reference
+            peersRef.current =
+              peersRef.current.map((item) => {
+                if (item.peerID === userId) {
+                  return {
+                    ...item,
+                    audio:
+                      typeof audio === "boolean"
+                        ? audio
+                        : item.audio,
+                    video:
+                      typeof video === "boolean"
+                        ? video
+                        : item.video,
+                  };
+                }
+
+                return item;
+              });
+
+            // Update UI
+            setPeers((prev) =>
+              prev.map((item) => {
+                if (item.id === userId) {
+                  return {
+                    ...item,
+                    audio:
+                      typeof audio === "boolean"
+                        ? audio
+                        : item.audio,
+                    video:
+                      typeof video === "boolean"
+                        ? video
+                        : item.video,
+                  };
+                }
+
+                return item;
+              })
+            );
+          }
+        );
+
+        // ==========================================
+        // CHAT
+        // ==========================================
         socket.on("chat-message", (data) => {
-          setMessages((prev) => [...prev, data]);
+          setMessages((prev) => [
+            ...prev,
+            data,
+          ]);
         });
-      } catch (err) {
-        console.error("Error accessing media devices:", err);
-        alert("Please allow camera and microphone permissions.");
-      }
-    })();
+      } catch (error) {
+        console.error(
+          "❌ Media device error:",
+          error
+        );
 
+        alert(
+          "Please allow camera and microphone permissions."
+        );
+      }
+    };
+
+    startMeeting();
+
+    // ==========================================
+    // CLEANUP
+    // ==========================================
     return () => {
       mounted = false;
-      socket.emit("leave-room", { roomId });
-      peersRef.current.forEach((p) => p.peer.destroy());
+
+      socket.emit("leave-room", {
+        roomId,
+      });
+
+      peersRef.current.forEach((item) => {
+        if (
+          item.peer &&
+          !item.peer.destroyed
+        ) {
+          item.peer.destroy();
+        }
+      });
+
       peersRef.current = [];
+
       setPeers([]);
+
       if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach((t) => t.stop());
+        localStreamRef.current
+          .getTracks()
+          .forEach((track) => {
+            track.stop();
+          });
+
+        localStreamRef.current = null;
       }
+
+      socket.off("all-users");
+      socket.off("user-joined");
+      socket.off("user-signal");
+      socket.off("receiving-returned-signal");
+      socket.off("user-left");
+      socket.off("chat-message");
+      socket.off("media-status");
     };
   }, [roomId, userName]);
 
-  const createInitiatorPeer = (userToSignal, callerID, stream) => {
-    const peer = new Peer({ initiator: true, trickle: false, stream });
-    peer.on("signal", (signal) => socket.emit("sending-signal", { to: userToSignal, signal }));
+  // ==========================================
+  // INITIATOR PEER
+  // ==========================================
+  const createInitiatorPeer = (
+    userToSignal,
+    stream
+  ) => {
+    const peer = new Peer({
+      initiator: true,
+      trickle: false,
+      stream,
+    });
+
+    peer.on("signal", (signal) => {
+      socket.emit("sending-signal", {
+        to: userToSignal,
+        signal,
+      });
+    });
+
+    peer.on("error", (error) => {
+      console.warn(
+        "⚠️ Initiator peer error:",
+        error.message
+      );
+    });
+
     return peer;
   };
 
-  const createReceiverPeer = (userId, stream) => {
-    const peer = new Peer({ initiator: false, trickle: false, stream });
-    peer.on("signal", (signal) => socket.emit("returning-signal", { to: userId, signal }));
+  // ==========================================
+  // RECEIVER PEER
+  // ==========================================
+  const createReceiverPeer = (
+    userId,
+    stream
+  ) => {
+    const peer = new Peer({
+      initiator: false,
+      trickle: false,
+      stream,
+    });
+
+    peer.on("signal", (signal) => {
+      socket.emit("returning-signal", {
+        to: userId,
+        signal,
+      });
+    });
+
+    peer.on("error", (error) => {
+      console.warn(
+        "⚠️ Receiver peer error:",
+        error.message
+      );
+    });
+
     return peer;
   };
 
-  // 🧩 Chat send
+  // ==========================================
+  // CHAT
+  // ==========================================
   const sendMessage = () => {
-    if (!message.trim()) return;
-    const payload = { roomId, message, sender: userName };
-    socket.emit("chat-message", payload);
+    if (!message.trim()) {
+      return;
+    }
+
+    socket.emit("chat-message", {
+      roomId,
+      message: message.trim(),
+      sender: userName,
+    });
+
     setMessage("");
   };
 
-  // ✅ --- UI Part ---
+  // ==========================================
+  // SEND MEDIA STATUS
+  // ==========================================
+  const sendMediaStatus = (
+    audioStatus,
+    videoStatus
+  ) => {
+    const payload = {
+      roomId,
+      audio: audioStatus,
+      video: videoStatus,
+    };
+
+    console.log(
+      "📡 Sending media status:",
+      payload
+    );
+
+    console.log(
+      "🔌 Socket connected:",
+      socket.connected
+    );
+
+    socket.emit(
+      "media-status",
+      payload,
+      (response) => {
+        console.log(
+          "📨 Media status acknowledgement:",
+          response
+        );
+      }
+    );
+  };
+
+  // ==========================================
+  // TOGGLE MICROPHONE
+  // ==========================================
+  const toggleMute = () => {
+    if (!localStreamRef.current) {
+      console.warn(
+        "⚠️ Local stream not available"
+      );
+      return;
+    }
+
+    const track =
+      localStreamRef.current.getAudioTracks()[0];
+
+    if (!track) {
+      console.warn(
+        "⚠️ Audio track not found"
+      );
+      return;
+    }
+
+    const newMutedState = track.enabled;
+
+    // Turn microphone OFF if currently ON
+    track.enabled = !track.enabled;
+
+    const muted = !track.enabled;
+
+    setIsMuted(muted);
+
+    console.log(
+      muted
+        ? "🔇 Microphone OFF"
+        : "🎙️ Microphone ON"
+    );
+
+    // Send current complete status
+    sendMediaStatus(
+      !muted,
+      !isCameraOff
+    );
+  };
+
+  // ==========================================
+  // TOGGLE CAMERA
+  // ==========================================
+  const toggleCamera = () => {
+    if (!localStreamRef.current) {
+      console.warn(
+        "⚠️ Local stream not available"
+      );
+      return;
+    }
+
+    const track =
+      localStreamRef.current.getVideoTracks()[0];
+
+    if (!track) {
+      console.warn(
+        "⚠️ Video track not found"
+      );
+      return;
+    }
+
+    // Turn camera OFF if currently ON
+    track.enabled = !track.enabled;
+
+    const cameraOff = !track.enabled;
+
+    setIsCameraOff(cameraOff);
+
+    console.log(
+      cameraOff
+        ? "📷 Camera OFF"
+        : "📷 Camera ON"
+    );
+
+    // Send current complete status
+    sendMediaStatus(
+      !isMuted,
+      !cameraOff
+    );
+  };
+
+  // ==========================================
+  // PARTICIPANT COUNT
+  // ==========================================
+  const participantCount =
+    peers.length + 1;
+
+  // ==========================================
+  // RESPONSIVE GRID
+  // ==========================================
+  let columns = 1;
+
+  if (participantCount === 1) {
+    columns = 1;
+  } else if (participantCount <= 4) {
+    columns = 2;
+  } else if (participantCount <= 9) {
+    columns = 3;
+  } else {
+    columns = 4;
+  }
+
+  // ==========================================
+  // UI
+  // ==========================================
   return (
     <div
       style={{
-        background: "radial-gradient(circle at center, #081229, #0B0F1A)",
         minHeight: "100vh",
-        padding: "40px 20px",
+        background:
+          "radial-gradient(circle at center, #081229, #0B0F1A)",
         color: "#fff",
-        position: "relative",
-        overflow: "hidden",
+        padding: "20px",
+        boxSizing: "border-box",
+        overflowX: "hidden",
       }}
     >
-      <h1
+      {/* HEADER */}
+      <div
         style={{
           textAlign: "center",
-          fontWeight: "bold",
-          fontSize: "2rem",
-          color: "#00BFFF",
-          marginBottom: "25px",
+          marginBottom: "15px",
         }}
       >
-        Room: {roomId}
-      </h1>
+        <h1
+          style={{
+            margin: 0,
+            color: "#00BFFF",
+            fontSize:
+              "clamp(1.5rem, 3vw, 2.3rem)",
+            fontWeight: "800",
+          }}
+        >
+          Room: {roomId}
+        </h1>
 
+        <div
+          style={{
+            marginTop: "6px",
+            color: "#ccc",
+            fontSize: "1rem",
+            fontWeight: "600",
+          }}
+        >
+          👥 Participants:{" "}
+          {participantCount}
+        </div>
+      </div>
+
+      {/* VIDEO GRID */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-          gap: "20px",
-          justifyItems: "center",
+          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          gap: "12px",
+          width: "100%",
+          maxWidth: "1600px",
+          margin: "0 auto",
+          alignItems: "center",
         }}
       >
-        <div style={{ width: "100%", maxWidth: 600 }}>
-          <video
-            ref={userVideo}
-            autoPlay
-            muted
-            playsInline
-            style={{
-              width: "100%",
-              borderRadius: "10px",
-              border: "2px solid #00BFFF",
-              boxShadow: "0 0 20px rgba(0,191,255,0.5)",
-            }}
+        {/* LOCAL VIDEO */}
+        <VideoCard
+          videoRef={userVideo}
+          userName={userName}
+          isMuted={isMuted}
+          isCameraOff={isCameraOff}
+        />
+
+        {/* REMOTE VIDEOS */}
+        {peers.map((item) => (
+          <Video
+            key={item.id}
+            peer={item.peer}
+            userName={item.userName}
+            isMuted={!item.audio}
+            isCameraOff={!item.video}
           />
-        </div>
-        {peers.map((p) => (
-          <Video key={p.id} peer={p.peer} />
         ))}
       </div>
 
-      {/* 🎛 Controls */}
+      {/* CONTROLS */}
       <div
         style={{
           display: "flex",
           justifyContent: "center",
-          marginTop: "30px",
-          gap: "15px",
+          gap: "12px",
           flexWrap: "wrap",
+          marginTop: "20px",
         }}
       >
+        {/* MUTE */}
         <button
-          onClick={() => {
-            if (!localStreamRef.current) return;
-            const audioTrack = localStreamRef.current.getAudioTracks()[0];
-            if (audioTrack) {
-              audioTrack.enabled = !audioTrack.enabled;
-              setIsMuted(!audioTrack.enabled);
-            }
-          }}
-          style={btnStyle(isMuted ? "#555" : "#00BFFF")}
+          onClick={toggleMute}
+          style={buttonStyle(
+            isMuted
+              ? "#555"
+              : "#00BFFF"
+          )}
         >
-          {isMuted ? "🔇 Unmute" : "🎙 Mute"}
+          {isMuted
+            ? "🔇 Unmute"
+            : "🎙 Mute"}
         </button>
 
+        {/* CAMERA */}
         <button
-          onClick={() => {
-            if (!localStreamRef.current) return;
-            const videoTrack = localStreamRef.current.getVideoTracks()[0];
-            if (videoTrack) {
-              videoTrack.enabled = !videoTrack.enabled;
-              setIsCameraOff(!videoTrack.enabled);
-            }
-          }}
-          style={btnStyle(isCameraOff ? "#555" : "#00BFFF")}
+          onClick={toggleCamera}
+          style={buttonStyle(
+            isCameraOff
+              ? "#555"
+              : "#00BFFF"
+          )}
         >
-          {isCameraOff ? "📷 Camera On" : "🎥 Camera Off"}
+          {isCameraOff
+            ? "📷 Camera On"
+            : "🎥 Camera Off"}
         </button>
 
+        {/* LEAVE */}
         <button
           onClick={() => {
-            try {
-              socket.emit("leave-room", { roomId });
-              if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach((t) => t.stop());
-              }
-              window.location.href = "/home";
-            } catch (e) {
-              console.error("Leave meeting error:", e);
+            socket.emit("leave-room", {
+              roomId,
+            });
+
+            if (
+              localStreamRef.current
+            ) {
+              localStreamRef.current
+                .getTracks()
+                .forEach((track) => {
+                  track.stop();
+                });
             }
+
+            window.location.href =
+              "/home";
           }}
-          style={btnStyle("#FF4B4B")}
+          style={buttonStyle(
+            "#FF4B4B"
+          )}
         >
           🚪 Leave Meeting
         </button>
       </div>
 
-      {/* 💬 Floating Chat Button */}
+      {/* CHAT BUTTON */}
       {!chatOpen && (
         <button
-          onClick={() => setChatOpen(true)}
+          onClick={() =>
+            setChatOpen(true)
+          }
           style={{
             position: "fixed",
-            bottom: "30px",
-            right: "30px",
+            right: "25px",
+            bottom: "25px",
+            width: "58px",
+            height: "58px",
+            borderRadius: "50%",
+            border: "none",
             background: "#00BFFF",
             color: "#fff",
-            border: "none",
-            borderRadius: "50%",
-            padding: "12px",
-            boxShadow: "0 0 15px rgba(0,191,255,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             cursor: "pointer",
+            boxShadow:
+              "0 0 20px rgba(0,191,255,0.6)",
+            zIndex: 1000,
           }}
         >
           <MessageCircle size={28} />
         </button>
       )}
 
-      {/* 💬 Sliding Chat Panel */}
+      {/* CHAT PANEL */}
       <div
         style={{
           position: "fixed",
           top: 0,
-          right: chatOpen ? "0" : "-340px",
+          right: chatOpen
+            ? 0
+            : "-340px",
           width: "320px",
-          height: "100%",
+          maxWidth: "90vw",
+          height: "100vh",
           background: "#111827",
-          borderLeft: "2px solid #00BFFF",
-          color: "#fff",
+          borderLeft:
+            "2px solid #00BFFF",
           display: "flex",
           flexDirection: "column",
-          transition: "right 0.4s ease-in-out",
+          transition:
+            "right 0.35s ease",
+          zIndex: 2000,
         }}
       >
+        {/* CHAT HEADER */}
         <div
           style={{
             background: "#00BFFF",
-            color: "#fff",
+            padding: "12px",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            padding: "10px",
-            fontWeight: "bold",
+            fontWeight: "700",
           }}
         >
-          <span>💬 Chat Room</span>
+          <span>
+            💬 Chat Room
+          </span>
+
           <button
-            onClick={() => setChatOpen(false)}
+            onClick={() =>
+              setChatOpen(false)
+            }
             style={{
               background: "none",
               border: "none",
@@ -326,50 +874,85 @@ export default function VideoMeet() {
           </button>
         </div>
 
+        {/* MESSAGES */}
         <div
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "10px",
-            fontSize: "0.9rem",
+            padding: "12px",
           }}
         >
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              style={{
-                marginBottom: "8px",
-                textAlign: msg.sender === userName ? "right" : "left",
-              }}
-            >
-              <b style={{ color: "#00BFFF" }}>{msg.sender}:</b> {msg.message}
-            </div>
-          ))}
+          {messages.map(
+            (msg, index) => (
+              <div
+                key={index}
+                style={{
+                  marginBottom:
+                    "10px",
+                  textAlign:
+                    msg.sender ===
+                    userName
+                      ? "right"
+                      : "left",
+                }}
+              >
+                <b
+                  style={{
+                    color:
+                      "#00BFFF",
+                  }}
+                >
+                  {msg.sender}:
+                </b>{" "}
+                {msg.message}
+              </div>
+            )
+          )}
         </div>
 
-        <div style={{ display: "flex", borderTop: "1px solid #00BFFF" }}>
+        {/* CHAT INPUT */}
+        <div
+          style={{
+            display: "flex",
+            borderTop:
+              "1px solid #00BFFF",
+          }}
+        >
           <input
-            type="text"
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            onChange={(e) =>
+              setMessage(
+                e.target.value
+              )
+            }
             placeholder="Type a message..."
+            onKeyDown={(e) => {
+              if (
+                e.key === "Enter"
+              ) {
+                sendMessage();
+              }
+            }}
             style={{
               flex: 1,
-              background: "#0B1120",
-              border: "none",
-              padding: "10px",
+              padding: "12px",
+              background:
+                "#0B1120",
               color: "#fff",
+              border: "none",
               outline: "none",
             }}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
           />
+
           <button
             onClick={sendMessage}
             style={{
-              background: "#00BFFF",
+              background:
+                "#00BFFF",
               color: "#fff",
               border: "none",
-              padding: "10px 15px",
+              padding:
+                "0 16px",
               cursor: "pointer",
             }}
           >
@@ -378,21 +961,155 @@ export default function VideoMeet() {
         </div>
       </div>
 
+      {/* FOOTER */}
       <p
         style={{
           textAlign: "center",
-          color: "#aaa",
-          marginTop: "25px",
-          fontSize: "0.9rem",
+          color: "#777",
+          marginTop: "12px",
+          fontSize: "0.8rem",
         }}
       >
-         NovaMeet Project 🚀
+        NovaMeet Project 🚀
       </p>
     </div>
   );
 }
 
-function btnStyle(color) {
+// ==========================================
+// LOCAL VIDEO CARD
+// ==========================================
+function VideoCard({
+  videoRef,
+  userName,
+  isMuted,
+  isCameraOff,
+}) {
+  return (
+    <div
+      style={{
+        width: "100%",
+        minWidth: 0,
+        position: "relative",
+        borderRadius: "10px",
+        overflow: "hidden",
+        background: "#000",
+      }}
+    >
+      <video
+        ref={videoRef}
+        autoPlay
+        muted
+        playsInline
+        style={{
+          width: "100%",
+          aspectRatio: "16 / 9",
+          objectFit: "cover",
+          display: "block",
+          border:
+            "2px solid #00BFFF",
+          boxSizing:
+            "border-box",
+          background: "#000",
+        }}
+      />
+
+      <div style={nameBadgeStyle}>
+        {isMuted
+          ? "🔇"
+          : "🎙️"}{" "}
+        {userName}
+      </div>
+
+      {isCameraOff && (
+        <div style={cameraOffStyle}>
+          📷 Camera Off
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// REMOTE VIDEO
+// ==========================================
+function Video({
+  peer,
+  userName,
+  isMuted,
+  isCameraOff,
+}) {
+  const ref = useRef();
+
+  useEffect(() => {
+    const handleStream = (stream) => {
+      if (ref.current) {
+        ref.current.srcObject =
+          stream;
+      }
+    };
+
+    peer.on(
+      "stream",
+      handleStream
+    );
+
+    return () => {
+      peer.removeListener(
+        "stream",
+        handleStream
+      );
+    };
+  }, [peer]);
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        minWidth: 0,
+        position: "relative",
+        borderRadius: "10px",
+        overflow: "hidden",
+        background: "#000",
+      }}
+    >
+      <video
+        ref={ref}
+        playsInline
+        autoPlay
+        style={{
+          width: "100%",
+          aspectRatio: "16 / 9",
+          objectFit: "cover",
+          display: "block",
+          border:
+            "2px solid #00BFFF",
+          boxSizing:
+            "border-box",
+          background: "#000",
+        }}
+      />
+
+      <div style={nameBadgeStyle}>
+        {isMuted
+          ? "🔇"
+          : "🎙️"}{" "}
+        {userName}
+      </div>
+
+      {isCameraOff && (
+        <div style={cameraOffStyle}>
+          📷 Camera Off
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// BUTTON STYLE
+// ==========================================
+function buttonStyle(color) {
   return {
     background: color,
     color: "#fff",
@@ -401,31 +1118,47 @@ function btnStyle(color) {
     borderRadius: "8px",
     cursor: "pointer",
     fontSize: "1rem",
-    boxShadow: "0 0 10px rgba(0,191,255,0.4)",
+    fontWeight: "600",
+    boxShadow:
+      "0 0 10px rgba(0,191,255,0.4)",
   };
 }
 
-function Video({ peer }) {
-  const ref = useRef();
-  useEffect(() => {
-    peer.on("stream", (stream) => {
-      if (ref.current) ref.current.srcObject = stream;
-    });
-  }, [peer]);
+// ==========================================
+// NAME BADGE
+// ==========================================
+const nameBadgeStyle = {
+  position: "absolute",
+  left: "10px",
+  bottom: "10px",
+  background:
+    "rgba(0,0,0,0.75)",
+  color: "#fff",
+  padding:
+    "6px 10px",
+  borderRadius: "6px",
+  fontSize: "0.9rem",
+  fontWeight: "600",
+  backdropFilter:
+    "blur(5px)",
+};
 
-  return (
-    <div style={{ width: "100%", maxWidth: 600 }}>
-      <video
-        playsInline
-        autoPlay
-        ref={ref}
-        style={{
-          width: "100%",
-          borderRadius: "10px",
-          border: "2px solid #00BFFF",
-          boxShadow: "0 0 20px rgba(0,191,255,0.5)",
-        }}
-      />
-    </div>
-  );
-}
+// ==========================================
+// CAMERA OFF
+// ==========================================
+const cameraOffStyle = {
+  position: "absolute",
+  top: "50%",
+  left: "50%",
+  transform:
+    "translate(-50%, -50%)",
+  background:
+    "rgba(0,0,0,0.75)",
+  color: "#fff",
+  padding:
+    "10px 16px",
+  borderRadius: "8px",
+  fontSize: "0.9rem",
+  fontWeight: "600",
+  whiteSpace: "nowrap",
+};
