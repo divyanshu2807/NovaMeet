@@ -11,7 +11,6 @@ export const register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    // Validate fields
     if (!name || !email || !password) {
       return res.status(400).json({
         message: "All fields (name, email, password) are required",
@@ -67,7 +66,10 @@ export const register = async (req, res) => {
       `${frontendUrl}/verify-email?token=${verificationToken}`;
 
     console.log("🔗 Verification link generated");
-    console.log("📧 Sending verification email to:", normalizedEmail);
+    console.log(
+      "📧 Sending verification email to:",
+      normalizedEmail
+    );
 
     // ==========================================
     // SEND VERIFICATION EMAIL
@@ -158,7 +160,7 @@ export const login = async (req, res) => {
       });
     }
 
-    // JWT
+    // Generate JWT
     const token = jwt.sign(
       {
         id: user._id,
@@ -199,8 +201,14 @@ export const verifyEmail = async (req, res) => {
 
     console.log("=================================");
     console.log("🔍 VERIFY EMAIL REQUEST");
-    console.log("🔑 Token received:", token ? "YES" : "NO");
-    console.log("🔢 Token length:", token?.length || 0);
+    console.log(
+      "🔑 Token received:",
+      token ? "YES" : "NO"
+    );
+    console.log(
+      "🔢 Token length:",
+      token?.length || 0
+    );
     console.log("=================================");
 
     if (!token) {
