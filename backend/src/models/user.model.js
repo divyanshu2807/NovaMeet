@@ -2,16 +2,49 @@ import mongoose, { Schema } from "mongoose";
 
 const userSchema = new Schema(
   {
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    token: { type: String },
-  },
-  { timestamps: true }
-);
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-// ✅ Remove any old 'username' index to prevent duplicate error
-userSchema.index({ username: 1 }, { unique: false });
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
+
+    password: {
+      type: String,
+      required: true,
+    },
+
+    token: {
+      type: String,
+    },
+
+    // 📧 Email verification
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+
+    verificationToken: {
+      type: String,
+      default: null,
+    },
+
+    verificationTokenExpiry: {
+      type: Date,
+      default: null,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
 const User = mongoose.model("User", userSchema);
 

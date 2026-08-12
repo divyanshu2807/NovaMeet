@@ -9,8 +9,14 @@ import socket from "../socketTest";
 
 function HomeComponent() {
   const navigate = useNavigate();
+
   const [meetingCode, setMeetingCode] = useState("");
-  const { addToUserHistory } = useContext(AuthContext);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const {
+    addToUserHistory,
+    logout,
+  } = useContext(AuthContext);
 
   const handleJoinVideoCall = async () => {
     if (!meetingCode.trim()) {
@@ -22,14 +28,36 @@ function HomeComponent() {
     await addToUserHistory(meetingCode);
 
     // ✅ Get current user info
-    const userData = JSON.parse(localStorage.getItem("nova_user"));
+    const userData =
+      JSON.parse(localStorage.getItem("user")) ||
+      JSON.parse(localStorage.getItem("nova_user"));
+
     const userName = userData?.name || "Guest";
 
-    // ✅ Emit join event to backend via socket
-    socket.emit("join-room", { roomId: meetingCode, userName });
+    // ✅ Emit join event
+    socket.emit("join-room", {
+      roomId: meetingCode,
+      userName,
+    });
 
-    // ✅ Redirect user to /meet/:roomId
-    navigate(`/meet/${meetingCode}`, { state: { meetingCode, userName } });
+    // ✅ Redirect
+    navigate(`/meet/${meetingCode}`, {
+      state: {
+        meetingCode,
+        userName,
+      },
+    });
+  };
+
+  // 🔐 Proper logout
+  const handleLogout = () => {
+    if (loggingOut) return;
+
+    setLoggingOut(true);
+
+    // AuthContext logout clears:
+    // token + userData + localStorage + navigation
+    logout();
   };
 
   return (
@@ -46,7 +74,7 @@ function HomeComponent() {
           boxShadow: "0 2px 12px rgba(0, 0, 0, 0.6)",
         }}
       >
-        {/* 🔹 Left - Textual Logo */}
+        {/* 🔹 Logo */}
         <div
           style={{
             display: "flex",
@@ -72,13 +100,21 @@ function HomeComponent() {
           </h1>
         </div>
 
-        {/* 🔹 Right - Buttons */}
-        <div style={{ display: "flex", alignItems: "center", gap: "18px" }}>
+        {/* 🔹 Right Buttons */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "18px",
+          }}
+        >
           <IconButton
             onClick={() => navigate("/history")}
             sx={{
               background: "rgba(255,255,255,0.1)",
-              "&:hover": { background: "rgba(255,255,255,0.2)" },
+              "&:hover": {
+                background: "rgba(255,255,255,0.2)",
+              },
             }}
           >
             <RestoreIcon sx={{ color: "#00bfff" }} />
@@ -96,21 +132,22 @@ function HomeComponent() {
             History
           </p>
 
+          {/* 🚪 Logout */}
           <Button
             variant="outlined"
             color="error"
-            onClick={() => {
-              localStorage.removeItem("token");
-              navigate("/auth");
-            }}
+            onClick={handleLogout}
+            disabled={loggingOut}
             sx={{
               borderColor: "#ff4d4d",
               color: "#ff4d4d",
               fontWeight: "600",
-              "&:hover": { backgroundColor: "rgba(255,77,77,0.1)" },
+              "&:hover": {
+                backgroundColor: "rgba(255,77,77,0.1)",
+              },
             }}
           >
-            Logout
+            {loggingOut ? "Logging out..." : "Logout"}
           </Button>
         </div>
       </div>
@@ -137,10 +174,18 @@ function HomeComponent() {
             }}
           >
             Connect. Collaborate. Create —{" "}
-            <span style={{ color: "#00bfff" }}>Only on NovaMeet</span>
+            <span style={{ color: "#00bfff" }}>
+              Only on NovaMeet
+            </span>
           </h1>
 
-          <div style={{ display: "flex", gap: "15px", marginTop: "25px" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "15px",
+              marginTop: "25px",
+            }}
+          >
             <TextField
               onChange={(e) => setMeetingCode(e.target.value)}
               value={meetingCode}
@@ -152,7 +197,10 @@ function HomeComponent() {
                   fontSize: "1.1rem",
                   fontWeight: "500",
                 },
-                label: { color: "gray", fontSize: "1rem" },
+                label: {
+                  color: "gray",
+                  fontSize: "1rem",
+                },
                 width: "320px",
               }}
             />
@@ -161,13 +209,15 @@ function HomeComponent() {
               onClick={handleJoinVideoCall}
               variant="contained"
               sx={{
-                background: "linear-gradient(90deg, #00bfff, #0077ff)",
+                background:
+                  "linear-gradient(90deg, #00bfff, #0077ff)",
                 fontWeight: "bold",
                 fontSize: "1.1rem",
                 padding: "10px 25px",
                 borderRadius: "10px",
                 "&:hover": {
-                  background: "linear-gradient(90deg, #00aaff, #0066ff)",
+                  background:
+                    "linear-gradient(90deg, #00aaff, #0066ff)",
                 },
               }}
             >
@@ -192,7 +242,8 @@ function HomeComponent() {
             style={{
               width: "90%",
               maxWidth: "520px",
-              filter: "drop-shadow(0 0 25px rgba(0,191,255,0.4))",
+              filter:
+                "drop-shadow(0 0 25px rgba(0,191,255,0.4))",
             }}
           />
         </div>

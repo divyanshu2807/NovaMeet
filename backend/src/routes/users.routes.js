@@ -1,13 +1,20 @@
 import { Router } from "express";
-import { login, register } from "../controllers/user.controller.js";
+import {
+  login,
+  register,
+  verifyEmail,
+} from "../controllers/user.controller.js";
 
 const router = Router();
 
-// ✅ Only working routes for now
+// 🔐 Authentication routes
 router.post("/login", login);
 router.post("/register", register);
 
-// ❌ These are not needed yet, so comment them out
+// 📧 Email verification route
+router.get("/verify-email", verifyEmail);
+
+// ❌ These are not needed yet
 // router.post("/add_to_activity", addToHistory);
 // router.get("/get_all_activity", getUserHistory);
 
