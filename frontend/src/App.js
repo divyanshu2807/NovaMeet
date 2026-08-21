@@ -5,6 +5,7 @@ import LandingPage from "./pages/landing";
 import Authentication from "./pages/authentication";
 import VideoMeetComponent from "./pages/VideoMeet";
 import HomeComponent from "./pages/home";
+import CreateMeeting from "./pages/createMeeting";
 import History from "./pages/history";
 import VerifyEmail from "./pages/VerifyEmail";
 
@@ -13,18 +14,42 @@ function App() {
     <div className="App">
       {/* App must NOT create another Router — Routes only */}
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route
+          path="/"
+          element={<LandingPage />}
+        />
 
-        <Route path="/auth" element={<Authentication />} />
+        <Route
+          path="/auth"
+          element={<Authentication />}
+        />
 
-        <Route path="/home" element={<HomeComponent />} />
+        <Route
+          path="/home"
+          element={<HomeComponent />}
+        />
 
-        <Route path="/history" element={<History />} />
+        {/* 🎥 Create Meeting */}
+        <Route
+          path="/create-meeting"
+          element={<CreateMeeting />}
+        />
 
-        <Route path="/meet/:roomId" element={<VideoMeetComponent />} />
+        <Route
+          path="/history"
+          element={<History />}
+        />
+
+        <Route
+          path="/meet/:roomId"
+          element={<VideoMeetComponent />}
+        />
 
         {/* 📧 Email verification */}
-        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route
+          path="/verify-email"
+          element={<VerifyEmail />}
+        />
       </Routes>
     </div>
   );

@@ -5,94 +5,211 @@ import "../App.css";
 import { Button, IconButton, TextField } from "@mui/material";
 import RestoreIcon from "@mui/icons-material/Restore";
 import { AuthContext } from "../contexts/AuthContext";
-import socket from "../socketTest";
+import axios from "axios";
+import server from "../environment";
 
 function HomeComponent() {
   const navigate = useNavigate();
 
   const [meetingCode, setMeetingCode] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   const {
     addToUserHistory,
     logout,
   } = useContext(AuthContext);
 
+  // ==========================================
+  // GET CURRENT USER
+  // ==========================================
+  const getCurrentUser = () => {
+    const userData =
+      JSON.parse(localStorage.getItem("user")) ||
+      JSON.parse(
+        localStorage.getItem("nova_user")
+      );
+
+    return userData?.name || "Guest";
+  };
+
+  // ==========================================
+  // JOIN EXISTING MEETING
+  // ==========================================
   const handleJoinVideoCall = async () => {
-    if (!meetingCode.trim()) {
-      alert("Please enter a valid meeting code!");
+    const cleanMeetingCode =
+      meetingCode.trim();
+
+    if (!cleanMeetingCode) {
+      alert(
+        "Please enter a valid meeting code!"
+      );
       return;
     }
 
-    // ✅ Add to history
-    await addToUserHistory(meetingCode);
+    if (joining) return;
 
-    // ✅ Get current user info
-    const userData =
-      JSON.parse(localStorage.getItem("user")) ||
-      JSON.parse(localStorage.getItem("nova_user"));
+    setJoining(true);
 
-    const userName = userData?.name || "Guest";
+    try {
+      // ==========================================
+      // CHECK WHETHER MEETING EXISTS
+      // ==========================================
+      const response = await axios.get(
+        `${server}/api/v1/meetings/${encodeURIComponent(
+          cleanMeetingCode
+        )}`
+      );
 
-    // ✅ Emit join event
-    socket.emit("join-room", {
-      roomId: meetingCode,
-      userName,
-    });
+      const meeting =
+        response?.data?.meeting;
 
-    // ✅ Redirect
-    navigate(`/meet/${meetingCode}`, {
-      state: {
-        meetingCode,
-        userName,
-      },
-    });
+      if (!meeting) {
+        alert("Meeting not found.");
+        setJoining(false);
+        return;
+      }
+
+      // ==========================================
+      // GET CURRENT USER
+      // ==========================================
+      const userName =
+        getCurrentUser();
+
+      // ==========================================
+      // ADD TO EXISTING HISTORY
+      // ==========================================
+      await addToUserHistory(
+        cleanMeetingCode
+      );
+
+      // ==========================================
+      // IMPORTANT:
+      // DO NOT JOIN SOCKET ROOM HERE
+      //
+      // VideoMeet.jsx will handle the socket
+      // connection after its listeners are ready.
+      // Guest will send a join request there.
+      // ==========================================
+
+      // ==========================================
+      // OPEN MEETING
+      // ==========================================
+      navigate(
+        `/meet/${cleanMeetingCode}`,
+        {
+          state: {
+            meetingCode:
+              cleanMeetingCode,
+
+            userName,
+
+            meetingTitle:
+              meeting.title,
+
+            // Guest
+            isHost: false,
+          },
+        }
+      );
+    } catch (error) {
+      console.error(
+        "❌ Join Meeting Error:",
+        error
+      );
+
+      if (
+        error?.response?.status === 404
+      ) {
+        alert(
+          "Meeting not found. Please check the meeting code."
+        );
+      } else if (
+        error?.response?.status === 410
+      ) {
+        alert(
+          "This meeting has already ended."
+        );
+      } else {
+        alert(
+          error?.response?.data?.message ||
+            "Unable to join the meeting. Please try again."
+        );
+      }
+    } finally {
+      setJoining(false);
+    }
   };
 
-  // 🔐 Proper logout
+  // ==========================================
+  // CREATE NEW MEETING
+  // ==========================================
+  const handleCreateMeeting = () => {
+    navigate("/create-meeting");
+  };
+
+  // ==========================================
+  // LOGOUT
+  // ==========================================
   const handleLogout = () => {
     if (loggingOut) return;
 
     setLoggingOut(true);
-
-    // AuthContext logout clears:
-    // token + userData + localStorage + navigation
     logout();
   };
 
   return (
-    <>
-      {/* 🌐 Navbar */}
+    <div
+      style={{
+        minHeight: "100vh",
+        background:
+          "linear-gradient(135deg, #071522 0%, #0b1020 45%, #120b2b 100%)",
+        color: "#fff",
+        boxSizing: "border-box",
+      }}
+    >
+      {/* ==========================================
+          NAVBAR
+      ========================================== */}
       <div
         className="navBar"
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          padding: "18px 45px",
-          background: "rgba(0, 0, 0, 0.7)",
-          boxShadow: "0 2px 12px rgba(0, 0, 0, 0.6)",
+          padding: "16px 45px",
+          background:
+            "rgba(0, 0, 0, 0.78)",
+          boxShadow:
+            "0 2px 18px rgba(0, 0, 0, 0.55)",
+          borderBottom:
+            "1px solid rgba(0,191,255,0.08)",
         }}
       >
-        {/* 🔹 Logo */}
+        {/* LOGO */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "8px",
             cursor: "pointer",
           }}
-          onClick={() => navigate("/home")}
+          onClick={() =>
+            navigate("/home")
+          }
         >
           <h1
             style={{
-              fontSize: "2.4rem",
+              fontSize: "2.25rem",
               fontWeight: "900",
-              background: "linear-gradient(90deg, #00bfff, #0077ff)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              letterSpacing: "1.2px",
-              fontFamily: "'Poppins', sans-serif",
+              background:
+                "linear-gradient(90deg, #00bfff, #0077ff)",
+              WebkitBackgroundClip:
+                "text",
+              WebkitTextFillColor:
+                "transparent",
+              letterSpacing: "1px",
+              fontFamily:
+                "'Poppins', sans-serif",
               margin: 0,
             }}
           >
@@ -100,156 +217,472 @@ function HomeComponent() {
           </h1>
         </div>
 
-        {/* 🔹 Right Buttons */}
+        {/* NAV RIGHT */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "18px",
+            gap: "14px",
           }}
         >
           <IconButton
-            onClick={() => navigate("/history")}
+            onClick={() =>
+              navigate("/history")
+            }
             sx={{
-              background: "rgba(255,255,255,0.1)",
+              background:
+                "rgba(255,255,255,0.08)",
+              width: "46px",
+              height: "46px",
               "&:hover": {
-                background: "rgba(255,255,255,0.2)",
+                background:
+                  "rgba(0,191,255,0.14)",
               },
             }}
           >
-            <RestoreIcon sx={{ color: "#00bfff" }} />
+            <RestoreIcon
+              sx={{
+                color: "#00bfff",
+                fontSize: "25px",
+              }}
+            />
           </IconButton>
 
           <p
-            onClick={() => navigate("/history")}
+            onClick={() =>
+              navigate("/history")
+            }
             style={{
               cursor: "pointer",
-              color: "#ffffff",
+              color: "#fff",
               fontWeight: "600",
-              fontSize: "1.15rem",
+              fontSize: "1.05rem",
+              margin: 0,
             }}
           >
             History
           </p>
 
-          {/* 🚪 Logout */}
           <Button
             variant="outlined"
             color="error"
             onClick={handleLogout}
             disabled={loggingOut}
             sx={{
-              borderColor: "#ff4d4d",
+              borderColor:
+                "#ff4d4d",
               color: "#ff4d4d",
               fontWeight: "600",
+              borderRadius: "8px",
+              padding: "7px 17px",
               "&:hover": {
-                backgroundColor: "rgba(255,77,77,0.1)",
+                backgroundColor:
+                  "rgba(255,77,77,0.1)",
               },
             }}
           >
-            {loggingOut ? "Logging out..." : "Logout"}
+            {loggingOut
+              ? "Logging out..."
+              : "Logout"}
           </Button>
         </div>
       </div>
 
-      {/* 💫 Main Section */}
+      {/* ==========================================
+          MAIN CONTENT
+      ========================================== */}
       <div
-        className="meetContainer"
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "80px 10%",
-          color: "white",
+          maxWidth: "1180px",
+          margin: "0 auto",
+          padding:
+            "42px 30px 55px",
+          boxSizing:
+            "border-box",
         }}
       >
-        {/* Left Side */}
-        <div className="leftPanel" style={{ flex: 1 }}>
-          <h1
+        {/* ==========================================
+            HERO
+        ========================================== */}
+        <div
+          style={{
+            textAlign: "center",
+            marginBottom: "34px",
+          }}
+        >
+          <div
             style={{
-              fontSize: "2.6rem",
+              display:
+                "inline-block",
+              padding: "6px 15px",
+              borderRadius: "30px",
+              background:
+                "rgba(0,191,255,0.08)",
+              border:
+                "1px solid rgba(0,191,255,0.22)",
+              color: "#00bfff",
+              fontSize: "0.78rem",
               fontWeight: "700",
-              lineHeight: "1.4",
-              marginBottom: "20px",
+              letterSpacing:
+                "0.8px",
+              marginBottom: "13px",
             }}
           >
-            Connect. Collaborate. Create —{" "}
-            <span style={{ color: "#00bfff" }}>
-              Only on NovaMeet
+            VIDEO MEETINGS • SIMPLE • FAST
+          </div>
+
+          <h1
+            style={{
+              fontSize:
+                "clamp(2.1rem, 4vw, 3.35rem)",
+              fontWeight: "800",
+              lineHeight: "1.08",
+              margin:
+                "0 auto 12px",
+              maxWidth: "900px",
+              letterSpacing:
+                "-1px",
+            }}
+          >
+            Connect. Collaborate.{" "}
+            <span
+              style={{
+                background:
+                  "linear-gradient(90deg, #00bfff, #0077ff)",
+                WebkitBackgroundClip:
+                  "text",
+                WebkitTextFillColor:
+                  "transparent",
+              }}
+            >
+              Create.
             </span>
           </h1>
 
-          <div
+          <p
             style={{
-              display: "flex",
-              gap: "15px",
-              marginTop: "25px",
+              color: "#9ca8bb",
+              fontSize: "1rem",
+              maxWidth: "620px",
+              margin: "0 auto",
+              lineHeight: "1.55",
             }}
           >
-            <TextField
-              onChange={(e) => setMeetingCode(e.target.value)}
-              value={meetingCode}
-              label="Enter Meeting Code"
-              variant="outlined"
-              sx={{
-                input: {
-                  color: "white",
-                  fontSize: "1.1rem",
-                  fontWeight: "500",
-                },
-                label: {
-                  color: "gray",
-                  fontSize: "1rem",
-                },
-                width: "320px",
-              }}
-            />
+            Start a new meeting or join
+            an existing NovaMeet
+            session using your meeting
+            code.
+          </p>
+        </div>
+
+        {/* ==========================================
+            ACTION CARDS
+        ========================================== */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              "repeat(2, minmax(0, 1fr))",
+            gap: "26px",
+            maxWidth: "1000px",
+            margin: "0 auto",
+          }}
+        >
+          {/* CREATE MEETING */}
+          <div
+            style={{
+              background:
+                "linear-gradient(145deg, rgba(0,191,255,0.10), rgba(0,0,0,0.42))",
+              border:
+                "1px solid rgba(0,191,255,0.25)",
+              borderRadius: "20px",
+              padding: "28px",
+              minHeight: "315px",
+              boxSizing: "border-box",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent:
+                "space-between",
+              boxShadow:
+                "0 15px 40px rgba(0,0,0,0.25)",
+              transition:
+                "transform 0.25s ease, box-shadow 0.25s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform =
+                "translateY(-5px)";
+              e.currentTarget.style.boxShadow =
+                "0 20px 50px rgba(0,191,255,0.12)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform =
+                "translateY(0)";
+              e.currentTarget.style.boxShadow =
+                "0 15px 40px rgba(0,0,0,0.25)";
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  width: "54px",
+                  height: "54px",
+                  borderRadius: "15px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent:
+                    "center",
+                  background:
+                    "rgba(0,191,255,0.12)",
+                  border:
+                    "1px solid rgba(0,191,255,0.25)",
+                  fontSize: "26px",
+                  marginBottom:
+                    "18px",
+                }}
+              >
+                🎥
+              </div>
+
+              <h2
+                style={{
+                  fontSize: "1.55rem",
+                  margin:
+                    "0 0 9px",
+                  fontWeight: "750",
+                }}
+              >
+                Create Meeting
+              </h2>
+
+              <p
+                style={{
+                  color: "#9ca8bb",
+                  lineHeight:
+                    "1.55",
+                  margin: 0,
+                  fontSize:
+                    "0.98rem",
+                }}
+              >
+                Start a new meeting,
+                add a title and
+                invite your
+                participants.
+              </p>
+            </div>
 
             <Button
-              onClick={handleJoinVideoCall}
+              fullWidth
               variant="contained"
+              onClick={
+                handleCreateMeeting
+              }
               sx={{
+                marginTop:
+                  "24px",
                 background:
                   "linear-gradient(90deg, #00bfff, #0077ff)",
-                fontWeight: "bold",
-                fontSize: "1.1rem",
-                padding: "10px 25px",
-                borderRadius: "10px",
+                color: "#fff",
+                fontWeight: "800",
+                fontSize:
+                  "0.98rem",
+                padding: "11px",
+                borderRadius:
+                  "10px",
+                boxShadow:
+                  "0 8px 22px rgba(0,191,255,0.18)",
                 "&:hover": {
                   background:
                     "linear-gradient(90deg, #00aaff, #0066ff)",
+                  boxShadow:
+                    "0 10px 28px rgba(0,191,255,0.28)",
                 },
               }}
             >
-              Join
+              CREATE MEETING
             </Button>
           </div>
-        </div>
 
-        {/* Right Side */}
-        <div
-          className="rightPanel"
-          style={{
-            flex: 1,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-          }}
-        >
-          <img
-            src="/logo3.png"
-            alt="NovaMeet Illustration"
+          {/* JOIN MEETING */}
+          <div
             style={{
-              width: "90%",
-              maxWidth: "520px",
-              filter:
-                "drop-shadow(0 0 25px rgba(0,191,255,0.4))",
+              background:
+                "linear-gradient(145deg, rgba(138,43,226,0.09), rgba(0,0,0,0.42))",
+              border:
+                "1px solid rgba(138,43,226,0.25)",
+              borderRadius: "20px",
+              padding: "28px",
+              minHeight: "315px",
+              boxSizing: "border-box",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent:
+                "space-between",
+              boxShadow:
+                "0 15px 40px rgba(0,0,0,0.25)",
+              transition:
+                "transform 0.25s ease, box-shadow 0.25s ease",
             }}
-          />
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform =
+                "translateY(-5px)";
+              e.currentTarget.style.boxShadow =
+                "0 20px 50px rgba(138,43,226,0.12)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform =
+                "translateY(0)";
+              e.currentTarget.style.boxShadow =
+                "0 15px 40px rgba(0,0,0,0.25)";
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  width: "54px",
+                  height: "54px",
+                  borderRadius: "15px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent:
+                    "center",
+                  background:
+                    "rgba(138,43,226,0.12)",
+                  border:
+                    "1px solid rgba(138,43,226,0.25)",
+                  fontSize: "26px",
+                  marginBottom:
+                    "18px",
+                }}
+              >
+                🔗
+              </div>
+
+              <h2
+                style={{
+                  fontSize: "1.55rem",
+                  margin:
+                    "0 0 9px",
+                  fontWeight: "750",
+                }}
+              >
+                Join Meeting
+              </h2>
+
+              <p
+                style={{
+                  color: "#9ca8bb",
+                  lineHeight:
+                    "1.55",
+                  margin: 0,
+                  fontSize:
+                    "0.98rem",
+                }}
+              >
+                Enter the meeting
+                code shared by your
+                host to join the
+                session.
+              </p>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: "10px",
+                alignItems:
+                  "stretch",
+                marginTop:
+                  "24px",
+              }}
+            >
+              <TextField
+                fullWidth
+                value={meetingCode}
+                onChange={(e) =>
+                  setMeetingCode(
+                    e.target.value
+                  )
+                }
+                placeholder="Enter meeting code"
+                variant="outlined"
+                sx={{
+                  "& .MuiOutlinedInput-root":
+                    {
+                      background:
+                        "rgba(0,0,0,0.28)",
+                      borderRadius:
+                        "10px",
+
+                      "& fieldset": {
+                        borderColor:
+                          "rgba(255,255,255,0.16)",
+                      },
+
+                      "&:hover fieldset":
+                        {
+                          borderColor:
+                            "#00bfff",
+                        },
+
+                      "&.Mui-focused fieldset":
+                        {
+                          borderColor:
+                            "#00bfff",
+                        },
+                    },
+
+                  input: {
+                    color: "#fff",
+                    fontWeight:
+                      "500",
+                    fontSize:
+                      "0.95rem",
+                  },
+
+                  "& input::placeholder":
+                    {
+                      color:
+                        "#8b8b96",
+                      opacity: 1,
+                    },
+                }}
+              />
+
+              <Button
+                variant="contained"
+                onClick={
+                  handleJoinVideoCall
+                }
+                disabled={joining}
+                sx={{
+                  minWidth:
+                    "100px",
+                  background:
+                    "linear-gradient(90deg, #00bfff, #0077ff)",
+                  color: "#fff",
+                  fontWeight:
+                    "800",
+                  borderRadius:
+                    "10px",
+                  "&:hover": {
+                    background:
+                      "linear-gradient(90deg, #00aaff, #0066ff)",
+                  },
+                }}
+              >
+                {joining
+                  ? "CHECKING..."
+                  : "JOIN"}
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
-export default withAuth(HomeComponent);
+export default withAuth(
+  HomeComponent
+);

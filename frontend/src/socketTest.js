@@ -1,6 +1,7 @@
 import { io } from "socket.io-client";
+import server from "./environment";
 
-const socket = io("https://novameet-backend.onrender.com", {
+const socket = io(server, {
   transports: ["websocket"],
   autoConnect: true,
 });
