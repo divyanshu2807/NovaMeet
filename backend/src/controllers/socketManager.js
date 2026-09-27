@@ -6,9 +6,13 @@ let pendingRequests = {};
 export const connectToSocket = (server) => {
   const io = new Server(server, {
     cors: {
-      origin: "*",
+      origin: [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://nova-meet-six.vercel.app",
+      ],
       methods: ["GET", "POST"],
-      allowedHeaders: ["*"],
+      allowedHeaders: ["Content-Type", "Authorization"],
       credentials: true,
     },
   });
